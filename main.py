@@ -59,7 +59,7 @@ def parse_args():
                         help='是否使用預訓練權重')
     parser.add_argument('--num_classes', type=int, default=6,
                         help='分類類別數量')
-    parser.add_argument('--architecture', type=str, choices=['baseline','cross_atten'], default='cross_atten', help='模型架構')
+    parser.add_argument('--architecture', type=str, choices=['baseline','ipsi','bi','cross_view'], default='cross_view', help='模型架構')
 
     # 訓練
     parser.add_argument('--batch_size', type=int, default=8,

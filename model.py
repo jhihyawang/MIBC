@@ -2,10 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
-
-from cross_atten import IpsiCrossViewFusion
+from IpsilateralFusion import IpsiCrossViewFusion
 from BilateralFusion import BilateralFusion
-
 
 class SiameseResNetRuleModel(nn.Module):
     def __init__(self, backbone_name='resnet50', pretrained=True,
@@ -76,13 +74,17 @@ class SiameseResNetRuleModel(nn.Module):
         # 🔹 左右乳 三分類 head（不使用 MIL attention）
         self.breast_classifier = nn.Linear(self.feature_dim, self.num_classes)
 
-        # cross-view 模組仍可保留/關閉
-        if architecture == "cross_atten":
+        # cross-view
+        # 同側融合
+        if architecture == "cross_view" or architecture == "ipsi": 
             self.cross_ipsi = IpsiCrossViewFusion(dim=self.feature_dim, heads=4)
         else:
             self.cross_ipsi = None
 
-        self.bilateral_fusion = BilateralFusion(dim=self.feature_dim)
+        if architecture == "cross_view" or architecture == "bi":
+            self.bilateral_fusion = BilateralFusion(dim=self.feature_dim)
+        else:
+            self.bilateral_fusion = None
 
     # ---------------- feature extractor ----------------
     def forward_one_view(self, x):
@@ -172,7 +174,7 @@ class SiameseResNetRuleModel(nn.Module):
         fmap = fmap.view(B, 4, C2, Hf, Wf)                 # (B,4,C,Hf,Wf)
 
         # ---- cross-attention（可選）----
-        if self.architecture == "cross_atten" and self.cross_ipsi is not None:
+        if self.architecture == "cross_view":
             feats = {
                 "L-CC":  fmap[:, 0],
                 "R-CC":  fmap[:, 1],
@@ -181,6 +183,33 @@ class SiameseResNetRuleModel(nn.Module):
             }
             feats = self.cross_ipsi(feats)
 
+            h_cm_left, h_cm_right = self.bilateral_fusion(feats["L-CC"], feats["R-CC"])
+            h_mc_left, h_mc_right = self.bilateral_fusion(feats["L-MLO"], feats["R-MLO"])
+
+            fmap = torch.stack(
+                [h_cm_left, h_cm_right, h_mc_left, h_mc_right], dim=1
+            )
+
+        elif self.architecture == "ipsi":
+            feats = {
+                "L-CC":  fmap[:, 0],
+                "R-CC":  fmap[:, 1],
+                "L-MLO": fmap[:, 2],
+                "R-MLO": fmap[:, 3],
+            }
+            feats = self.cross_ipsi(feats)
+
+            fmap = torch.stack(
+                [feats["L-CC"], feats["R-CC"], feats["L-MLO"], feats["R-MLO"]], dim=1
+            )
+
+        elif self.architecture == "bi":
+            feats = {
+                "L-CC":  fmap[:, 0],
+                "R-CC":  fmap[:, 1],
+                "L-MLO": fmap[:, 2],
+                "R-MLO": fmap[:, 3],
+            }
             h_cm_left, h_cm_right = self.bilateral_fusion(feats["L-CC"], feats["R-CC"])
             h_mc_left, h_mc_right = self.bilateral_fusion(feats["L-MLO"], feats["R-MLO"])
 

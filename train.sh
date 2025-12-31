@@ -18,11 +18,11 @@ SAVE_DIR="./test1231"
 # ==========================================
 
 # 想要跑的模型列表
-BACKBONES=("resnet50" "efficientnet_b0")
-# BACKBONES=("resnet50" "efficientnet_b0" "efficientnet_b3" "convnext_tiny" "convnext_small")
+BACKBONES=("resnet18" "resnet50" "efficientnet_b0" "efficientnet_b5" "convnext_tiny" "convnext_small")
+# BACKBONES=("resnet50" "efficientnet_b0" "efficientnet_b5" "convnext_tiny" "convnext_small")
 
 # 想要跑的架構列表
-ARCHITECTURES=("cross_atten" "baseline")    # 選項: cross_atten, baseline
+ARCHITECTURES=("baseline" "ipsi" "bi" "cross_view")    # 選項: cross_view, baseline, ipsi, bi
 
 # 硬體相關參數
 BATCH_SIZE=4     
