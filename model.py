@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torchvision.models as models
 from IpsilateralFusion import IpsiCrossViewFusion
 from BilateralFusion import BilateralFusion
+from nyu_layers import resnet22_nyu, load_nyu_pretrained_weights
 
 class SiameseResNetRuleModel(nn.Module):
     def __init__(self, backbone_name='resnet50', pretrained=True,
@@ -18,7 +19,15 @@ class SiameseResNetRuleModel(nn.Module):
         self.decision_rule = decision_rule
 
         # ---------------- Backbone ----------------
-        if backbone_name == 'resnet50':
+        if backbone_name == 'resnet22_nyu':
+            # NYU breast cancer classifier ResNet22
+            # 注意：NYU 原始模型使用 1 通道 (grayscale)，我們需要適配
+            # 我們創建 1 通道模型並載入權重，然後轉換第一層以適配 3 通道輸入
+            self.backbone = resnet22_nyu(input_channels=1)  # 先創建 1 通道模型載入權重
+            self.feature_dim = 256  # NYU ResNet22 輸出維度
+            self._nyu_weights_loaded = False  # 標記是否載入了 NYU 權重
+            
+        elif backbone_name == 'resnet50':
             self.backbone = models.resnet50(
                 weights=models.ResNet50_Weights.DEFAULT if pretrained else None
             )
@@ -83,6 +92,9 @@ class SiameseResNetRuleModel(nn.Module):
             
         else:
             raise ValueError(f"不支援的骨幹網路: {backbone_name}")
+            
+        # 載入 NYU 預訓練權重（如果使用 resnet22_nyu）
+        self.nyu_weights_loaded = False
 
         # global pooling
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
@@ -115,20 +127,92 @@ class SiameseResNetRuleModel(nn.Module):
             hidden_dim = self.feature_dim  # 例如 2048
 
             self.breast_classifier = nn.Sequential(
-                nn.LayerNorm(self.feature_dim * 2),      # 穩定訓練
-                nn.Dropout(p=0.5),
+                # nn.LayerNorm(self.feature_dim * 2),      # 拔掉
+                # nn.Dropout(p=0.5),                
                 nn.Linear(self.feature_dim * 2, hidden_dim),
                 nn.ReLU(inplace=True),
                 nn.Dropout(p=0.5),
                 nn.Linear(hidden_dim, self.num_classes)
             )
 
+    def load_nyu_pretrained(self, weights_path):
+        """
+        載入 NYU breast cancer classifier 的預訓練權重
+        
+        Args:
+            weights_path: NYU 權重檔案路徑 (.p 或 .pth)
+                        推薦使用: models/ImageOnly__ModeImage_weights.p
+                        
+        支援的 NYU 權重類型:
+        - ImageOnly__ModeImage_weights.p: 僅使用影像 (推薦)
+        - ImageHeatmaps__ModeImage_weights.p: 影像+熱圖 (需額外處理)
+        """
+        if self.backbone_name != 'resnet22_nyu':
+            raise ValueError("只有 resnet22_nyu 架構支援 NYU 預訓練權重")
+            
+        print(f"載入 NYU ResNet22 預訓練權重: {weights_path}")
+        
+        # 檢查權重類型
+        if "ImageOnly" in weights_path:
+            print("使用 Image-only 預訓練權重 (推薦)")
+        elif "ImageHeatmaps" in weights_path:
+            print("警告: 使用 Image+heatmaps 權重，可能需要額外適配")
+        
+        # 載入權重到backbone (1 通道模型)
+        load_nyu_pretrained_weights(self.backbone, weights_path, view='L-CC')
+        
+        # 轉換第一個卷積層以支持 3 通道輸入
+        self._adapt_first_conv_for_rgb()
+        
+        self.nyu_weights_loaded = True
+        print("✅ NYU 預訓練權重載入完成")
+
+    def _adapt_first_conv_for_rgb(self):
+        """
+        將 NYU 的 1 通道第一層卷積轉換為 3 通道，支援 RGB 輸入
+        使用權重複製策略：將 1 通道權重複製 3 次並平均
+        """
+        first_conv = self.backbone.first_conv
+        if first_conv.in_channels == 1:
+            # 獲取原始權重 (16, 1, 7, 7)
+            old_weight = first_conv.weight.data
+            
+            # 創建新的 3 通道卷積層
+            new_conv = torch.nn.Conv2d(
+                in_channels=3,
+                out_channels=first_conv.out_channels,
+                kernel_size=first_conv.kernel_size,
+                stride=first_conv.stride,
+                padding=first_conv.padding,
+                bias=first_conv.bias is not None
+            )
+            
+            # 將 1 通道權重擴展到 3 通道（複製 3 次並除以 3 保持數值規模）
+            with torch.no_grad():
+                new_weight = old_weight.repeat(1, 3, 1, 1) / 3.0
+                new_conv.weight.data = new_weight
+                
+                if first_conv.bias is not None:
+                    new_conv.bias.data = first_conv.bias.data.clone()
+            
+            # 替換第一個卷積層
+            self.backbone.first_conv = new_conv
+            print("   已將第一層卷積從 1 通道轉換為 3 通道")
+        else:
+            print("   第一層卷積已經是 3 通道，無需轉換")
+        
+        print("✅ NYU 預訓練權重載入完成")
+
     # ---------------- feature extractor ----------------
     def forward_one_view(self, x):
         """處理單張影像提取特徵"""
         # x shape: (Batch_Size * 4, 3, H, W)
         
-        if 'resnet' in self.backbone_name:
+        if self.backbone_name == 'resnet22_nyu':
+            # NYU ResNet22 直接前向傳播
+            x = self.backbone(x)
+            
+        elif 'resnet' in self.backbone_name:
             x = self.backbone.conv1(x)
             x = self.backbone.bn1(x)
             x = self.backbone.relu(x)
@@ -151,10 +235,10 @@ class SiameseResNetRuleModel(nn.Module):
         # x: (B,4,3,H,W)
         B, V, C, H, W = x.shape
 
-        x = x.view(B * V, C, H, W)
+        x = x.reshape(B * V, C, H, W)
         fmap = self.forward_one_view(x)                    # (B*4,C,Hf,Wf)
         _, C2, Hf, Wf = fmap.shape
-        fmap = fmap.view(B, 4, C2, Hf, Wf)                 # (B,4,C,Hf,Wf)
+        fmap = fmap.reshape(B, 4, C2, Hf, Wf)                 # (B,4,C,Hf,Wf)
 
         # ---- cross-attention（可選）----
         if self.architecture == "cross_view":
@@ -203,10 +287,10 @@ class SiameseResNetRuleModel(nn.Module):
         # global pooling
         # fmap: (B, 4, C, Hf, Wf)
         B, V, C2, Hf, Wf = fmap.shape
-        fmap_flat = fmap.view(B * V, C2, Hf, Wf)        # (B*4, C, Hf, Wf)
+        fmap_flat = fmap.reshape(B * V, C2, Hf, Wf)        # (B*4, C, Hf, Wf)
 
         pooled = self.global_pool(fmap_flat)           # (B*4, C, 1, 1)
-        pooled = pooled.view(B, V, self.feature_dim)   # (B, 4, C)
+        pooled = pooled.reshape(B, V, self.feature_dim)   # (B, 4, C)
 
         # 四視角 左右分別 concat → exam-level feature
         l_feat = torch.cat([pooled[:, 0], pooled[:, 2]], dim=1)  # (B, 2*C_f)
