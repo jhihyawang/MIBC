@@ -21,9 +21,8 @@ class SiameseResNetRuleModel(nn.Module):
         # ---------------- Backbone ----------------
         if backbone_name == 'resnet22_nyu':
             # NYU breast cancer classifier ResNet22
-            # 注意：NYU 原始模型使用 1 通道 (grayscale)，我們需要適配
-            # 我們創建 1 通道模型並載入權重，然後轉換第一層以適配 3 通道輸入
-            self.backbone = resnet22_nyu(input_channels=1)  # 先創建 1 通道模型載入權重
+            # 使用共享的 backbone，但載入混合的預訓練權重
+            self.backbone = resnet22_nyu(input_channels=1)
             self.feature_dim = 256  # NYU ResNet22 輸出維度
             self._nyu_weights_loaded = False  # 標記是否載入了 NYU 權重
             
@@ -135,44 +134,39 @@ class SiameseResNetRuleModel(nn.Module):
                 nn.Linear(hidden_dim, self.num_classes)
             )
 
+        # ---------------- 權重初始化 ----------------  
+        # NYU ResNet22: 權重會在呼叫 load_nyu_pretrained() 時載入
+        # 其他 backbone: 使用 torchvision 預訓練權重
+
     def load_nyu_pretrained(self, weights_path):
         """
-        載入 NYU breast cancer classifier 的預訓練權重
+        載入 NYU breast cancer classifier 的 CC 視角預訓練權重
+        作為四個視角的 shared backbone
         
         Args:
-            weights_path: NYU 權重檔案路徑 (.p 或 .pth)
-                        推薦使用: models/ImageOnly__ModeImage_weights.p
-                        
-        支援的 NYU 權重類型:
-        - ImageOnly__ModeImage_weights.p: 僅使用影像 (推薦)
-        - ImageHeatmaps__ModeImage_weights.p: 影像+熱圖 (需額外處理)
+            weights_path: NYU 權重檔案路徑 (.p)
         """
         if self.backbone_name != 'resnet22_nyu':
-            raise ValueError("只有 resnet22_nyu 架構支援 NYU 預訓練權重")
+            raise ValueError("只有 resnet22_nyu backbone 支援載入 NYU 權重")
             
-        print(f"載入 NYU ResNet22 預訓練權重: {weights_path}")
+        print(f'載入 NYU ResNet22 預訓練權重: {weights_path}')
+        print(f'使用 CC 視角權重作為 shared backbone')
         
-        # 檢查權重類型
-        if "ImageOnly" in weights_path:
-            print("使用 Image-only 預訓練權重 (推薦)")
-        elif "ImageHeatmaps" in weights_path:
-            print("警告: 使用 Image+heatmaps 權重，可能需要額外適配")
+        # 載入 CC 視角的權重
+        load_nyu_pretrained_weights(self.backbone, weights_path, view='CC')
         
-        # 載入權重到backbone (1 通道模型)
-        load_nyu_pretrained_weights(self.backbone, weights_path, view='L-CC')
+        # 轉換為 3 通道輸入
+        self._adapt_first_conv_for_rgb(self.backbone)
         
-        # 轉換第一個卷積層以支持 3 通道輸入
-        self._adapt_first_conv_for_rgb()
-        
-        self.nyu_weights_loaded = True
-        print("✅ NYU 預訓練權重載入完成")
+        self._nyu_weights_loaded = True
+        print('✅ NYU 預訓練權重載入完成')
 
-    def _adapt_first_conv_for_rgb(self):
+    def _adapt_first_conv_for_rgb(self, backbone):
         """
         將 NYU 的 1 通道第一層卷積轉換為 3 通道，支援 RGB 輸入
         使用權重複製策略：將 1 通道權重複製 3 次並平均
         """
-        first_conv = self.backbone.first_conv
+        first_conv = backbone.first_conv
         if first_conv.in_channels == 1:
             # 獲取原始權重 (16, 1, 7, 7)
             old_weight = first_conv.weight.data
@@ -196,12 +190,10 @@ class SiameseResNetRuleModel(nn.Module):
                     new_conv.bias.data = first_conv.bias.data.clone()
             
             # 替換第一個卷積層
-            self.backbone.first_conv = new_conv
-            print("   已將第一層卷積從 1 通道轉換為 3 通道")
+            backbone.first_conv = new_conv
+            print("   已將該視角第一層卷積從 1 通道轉換為 3 通道")
         else:
-            print("   第一層卷積已經是 3 通道，無需轉換")
-        
-        print("✅ NYU 預訓練權重載入完成")
+            print("   該視角第一層卷積已經是 3 通道，無需轉換")
 
     # ---------------- feature extractor ----------------
     def forward_one_view(self, x):
@@ -232,13 +224,21 @@ class SiameseResNetRuleModel(nn.Module):
 
     # ---------------- forward ----------------
     def forward(self, x):
-        # x: (B,4,3,H,W)
+        # x: (B,4,3,H,W) - 順序: L-CC, R-CC, L-MLO, R-MLO
         B, V, C, H, W = x.shape
 
-        x = x.reshape(B * V, C, H, W)
-        fmap = self.forward_one_view(x)                    # (B*4,C,Hf,Wf)
-        _, C2, Hf, Wf = fmap.shape
-        fmap = fmap.reshape(B, 4, C2, Hf, Wf)                 # (B,4,C,Hf,Wf)
+        if self.backbone_name == 'resnet22_nyu':
+            # NYU ResNet22: 使用共享 backbone 處理所有視角
+            x = x.reshape(B * V, C, H, W)
+            fmap = self.backbone(x)                    # (B*4, C2, Hf, Wf)
+            _, C2, Hf, Wf = fmap.shape
+            fmap = fmap.reshape(B, 4, C2, Hf, Wf)                 # (B, 4, C2, Hf, Wf)
+        else:
+            # 其他 backbone: 使用共享的 backbone
+            x = x.reshape(B * V, C, H, W)
+            fmap = self.forward_one_view(x)                    # (B*4,C,Hf,Wf)
+            _, C2, Hf, Wf = fmap.shape
+            fmap = fmap.reshape(B, 4, C2, Hf, Wf)                 # (B,4,C,Hf,Wf)
 
         # ---- cross-attention（可選）----
         if self.architecture == "cross_view":

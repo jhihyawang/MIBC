@@ -41,8 +41,8 @@ ACCUM_STEPS=8
 EPOCHS=50
 LR=1e-4
 WD=1e-4
-IMG_H=512
-IMG_W=256
+IMG_H=1024
+IMG_W=512
 # 自動生成實驗 ID (包含時間戳記，避免覆蓋)
 TIMESTAMP=$(date +"%m%d_%H%M")
 

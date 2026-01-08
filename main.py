@@ -11,9 +11,8 @@ from datetime import datetime
 from dataloader import get_dataloaders
 from utils import set_seed, plot_confusion_matrix, plot_training_curves, calculate_class_weights
 from model import SiameseResNetRuleModel
-import torch.nn.functional as F  # 新增這行
+import torch.nn.functional as F  
 
-# pip install torch torchvision scikit-learn tqdm argparse 
 # ---------------- Exam Rule Loss ----------------
 def exam_rule_loss(exam_log_prob, targets, class_weights=None):
     """
