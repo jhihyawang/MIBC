@@ -6,7 +6,7 @@
 
 # 請將以下路徑改為您電腦上的實際位置
 # 請將以下路徑改為您電腦上的實際位置
-DATA_ROOT="/home/stoneyew/Desktop/Mission-Impossible-BIRADS/processed_datasets"  # 圖片根目錄
+DATA_ROOT="processed_datasets"  # 圖片根目錄
 CSV_DIR="csv/three_classes"       # CSV 檔案目錄
 
 # NYU ResNet22 預訓練權重路徑
