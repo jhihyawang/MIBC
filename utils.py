@@ -40,11 +40,11 @@ def plot_confusion_matrix(y_true, y_pred, save_path, num_classes=6, phase="Valid
 def plot_training_curves(history, save_dir, title=None):
     """繪製訓練曲線 (loss, acc, f1)"""
     epochs = range(1, len(history['train_loss']) + 1)
-    
+
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     if title:
         fig.suptitle(title, fontsize=16, fontweight='bold', y=1.02)
-    
+
     # Loss
     axes[0].plot(epochs, history['train_loss'], 'b-', label='Train Loss', linewidth=2)
     axes[0].plot(epochs, history['val_loss'], 'r-', label='Val Loss', linewidth=2)
@@ -53,7 +53,7 @@ def plot_training_curves(history, save_dir, title=None):
     axes[0].set_ylabel('Loss')
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
-    
+
     # Accuracy
     axes[1].plot(epochs, history['train_acc'], 'b-', label='Train Acc', linewidth=2)
     axes[1].plot(epochs, history['val_acc'], 'r-', label='Val Acc', linewidth=2)
@@ -62,15 +62,16 @@ def plot_training_curves(history, save_dir, title=None):
     axes[1].set_ylabel('Accuracy')
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
-    
+
     # F1 Score
+    axes[2].plot(epochs, history['train_f1'], 'b-', label='Train Macro-F1', linewidth=2)
     axes[2].plot(epochs, history['val_f1'], 'g-', label='Val Macro-F1', linewidth=2)
-    axes[2].set_title('Validation Macro-F1 Score', fontsize=14, fontweight='bold')
+    axes[2].set_title('Training and Validation Macro-F1 Score', fontsize=14, fontweight='bold')
     axes[2].set_xlabel('Epoch')
     axes[2].set_ylabel('F1 Score')
     axes[2].legend()
     axes[2].grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
     save_path = os.path.join(save_dir, 'training_curves.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')

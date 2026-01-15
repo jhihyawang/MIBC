@@ -112,7 +112,32 @@ class ViewResNetV2(nn.Module):
         return nn.Sequential(*layers_)
 
 
-def resnet22_nyu(input_channels=1):
+def kaiming_init_resnet22(model):
+    """
+    對 ResNet22 模型進行 Kaiming 初始化
+    
+    使用 He initialization（Kaiming initialization）:
+    - Conv2d: Kaiming Normal，適用於 ReLU
+    - BatchNorm2d: weight=1, bias=0
+    - Linear: Kaiming Normal
+    """
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm2d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+    print("✅ ResNet22 Kaiming 初始化完成")
+    return model
+
+
+def resnet22_nyu(input_channels=1, kaiming_init=True):
     """
     NYU ResNet22 for mammography - 確實的架構實現
     
@@ -121,8 +146,12 @@ def resnet22_nyu(input_channels=1):
     - 5 stages × 2 blocks × 2 convs = 20 層  
     - Final BN: 1 層
     Total: 22 層
+    
+    Args:
+        input_channels: 輸入通道數 (預設為 1，灰階)
+        kaiming_init: 是否使用 Kaiming 初始化 (預設為 True)
     """
-    return ViewResNetV2(
+    model = ViewResNetV2(
         input_channels=input_channels,
         num_filters=16,                        # 起始 filter 數量
         first_layer_kernel_size=7,             # 第一層 kernel 大小  
@@ -136,6 +165,13 @@ def resnet22_nyu(input_channels=1):
         first_pool_padding=0,                  # MaxPool padding (valid)
         growth_factor=2                        # Filter 增長倍數: 16→32→64→128→256
     )
+    
+    if kaiming_init:
+        model = kaiming_init_resnet22(model)
+        print('✅ ResNet22 Kaiming 初始化完成')
+        return model
+    
+    return model
 
 
 def load_nyu_pretrained_weights(model, weights_path, view='L-CC'):

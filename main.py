@@ -52,14 +52,14 @@ def parse_args():
     # 模型參數
     parser.add_argument('--backbone', type=str, default='resnet50',
                         choices=['resnet18','resnet50', 'resnet101', 'resnet22_nyu', 'efficientnet_b0', 'efficientnet_b3', 
-                                'efficientnet_b5', 'convnext_tiny', 'convnext_small', 'convnext_base'],
+                                'efficientnet_b5', 'convnext_tiny', 'convnext_small', 'convnext_base','view_resnetv3'],
                         help='骨幹網路選擇')
     parser.add_argument('--pretrained', action='store_true', default=True,
                         help='是否使用預訓練權重')
     parser.add_argument('--num_classes', type=int, default=6,
                         help='分類類別數量')
-    parser.add_argument('--architecture', type=str, choices=['baseline','ipsi','bi','cross_view'], default='cross_view', help='模型架構')
-    parser.add_argument('--concate_method', type=str, choices=['concat','concat_linear','concat_mlp'], default='concat', help='多視角特徵融合方式')
+    parser.add_argument('--architecture', type=str, choices=['baseline',"side_invariant",'ipsi','bi','cross_view'], default='cross_view', help='模型架構')
+    parser.add_argument('--concate_method', type=str, choices=['concat','concat_linear','concat_mlp','2fc'], default='concat', help='多視角特徵融合方式')
     parser.add_argument('--decision_rule', type=str, choices=['max','avg','rule'], default='max', help='exam-level 決策規則')
 
     # 訓練
@@ -245,7 +245,7 @@ def test(model, loader, device, args, exp_dir):
         print(line)
     
     # 儲存報告到檔案
-    report_path = 'report3.txt'
+    report_path = 'report.txt'
     with open(report_path, 'a+', encoding='utf-8') as f:
         f.write('\n'.join(report_content))
     print(f"\n✅ 測試報告已儲存至: {report_path}")
@@ -400,6 +400,8 @@ def main():
         history['val_loss'].append(val_loss)
         history['val_acc'].append(val_acc)
         history['val_f1'].append(val_f1)
+        history['train_f1'] = history.get('train_f1', [])  # 確保存在
+        history['train_f1'].append(train_acc)
         
         print(f"\nEpoch {epoch+1}/{args.num_epochs} Stats:")
         print(f"Train Loss: {train_loss:.4f} (Cls: {train_cls_loss:.4f} | Acc: {train_acc:.4f}")

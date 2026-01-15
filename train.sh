@@ -1,44 +1,41 @@
 #!/bin/bash
-
+#structureB
 # ==========================================
 # 環境設定 
 # ==========================================
 
-# 激活 conda 環境
-source ~/anaconda3/etc/profile.d/conda.sh
-conda activate birads
-
 # 請將以下路徑改為您電腦上的實際位置
-DATA_ROOT="/home/bsplab/Desktop/MIBC/clahe"  # 圖片根目錄
+# 請將以下路徑改為您電腦上的實際位置
+DATA_ROOT="/home/stoneyew/Desktop/Mission-Impossible-BIRADS/processed_datasets"  # 圖片根目錄
 CSV_DIR="csv/three_classes"       # CSV 檔案目錄
 
 # NYU ResNet22 預訓練權重路徑
-NYU_WEIGHTS_PATH="/home/bsplab/Desktop/MIBC/resnet22_weight/ImageOnly__ModeImage_weights.p"
+NYU_WEIGHTS_PATH="resnet22_weight/ImageOnly__ModeImage_weights.p"
 
 TRAIN_CSV="${CSV_DIR}/train_labels.csv"
 VAL_CSV="${CSV_DIR}/val_labels.csv"
 TEST_CSV="${CSV_DIR}/test_labels.csv"
-SAVE_DIR="./0107_baseon_breastlevel_decisionrule"
+SAVE_DIR="./1024*512__viewresv3_randominit"
 
 # ==========================================
 # 訓練超參數設定
 # ==========================================
 
 # 想要跑的模型列表
-BACKBONES=("resnet22_nyu" "convnext_tiny" "resnet50")
+BACKBONES=("view_resnetv3")
 # BACKBONES=("resnet50" "efficientnet_b0" "efficientnet_b5" "convnext_tiny" "convnext_small")
 
 # 想要跑的架構列表
-ARCHITECTURES=("baseline" "cross_view")    # 選項: cross_view, baseline, ipsi, bi
+ARCHITECTURES=("baseline")    # 選項: cross_view, baseline, ipsi, bi
 
 # 想要跑的拼接方式列表
-CONCATE_METHODS=("concat_mlp")
-DESISION_RULES=("rule")
+CONCATE_METHODS=("2fc")
+DESISION_RULES=("avg")
 
 # 硬體相關參數
 BATCH_SIZE=4     
 ACCUM_STEPS=8
-EPOCHS=50
+EPOCHS=100
 LR=1e-4
 WD=1e-4
 IMG_H=1024
