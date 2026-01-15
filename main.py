@@ -11,23 +11,22 @@ from datetime import datetime
 from dataloader import get_dataloaders
 from utils import set_seed, plot_confusion_matrix, plot_training_curves, calculate_class_weights
 from model import SiameseResNetRuleModel
-import torch.nn.functional as F  # 新增這行
+import torch.nn.functional as F  
 
-# pip install torch torchvision scikit-learn tqdm argparse 
 # ---------------- Exam Rule Loss ----------------
-def exam_rule_loss(exam_probs, targets, class_weights=None):
+def exam_rule_loss(exam_log_prob, targets, class_weights=None):
     """
-    exam_probs: (B,3) 來自 model 的 exam-level 機率
+    exam_log_prob: (B,3) 來自 model 的 exam-level log 機率
     targets:   (B,)  exam-level label（0/1/2）
     class_weights: tensor(num_classes,) 或 None
     """
-    # 轉成 log prob
-    log_p = torch.log(exam_probs)
+    # # 轉成 log prob
+    # log_p = torch.log(exam_probs)
 
     if class_weights is not None:
-        return F.nll_loss(log_p, targets, weight=class_weights)
+        return F.nll_loss(exam_log_prob, targets, weight=class_weights)
     else:
-        return F.nll_loss(log_p, targets)
+        return F.nll_loss(exam_log_prob, targets)
 
 
 # ==========================================
@@ -52,14 +51,16 @@ def parse_args():
     
     # 模型參數
     parser.add_argument('--backbone', type=str, default='resnet50',
-                        choices=['resnet18','resnet50', 'resnet101', 'efficientnet_b0', 'efficientnet_b3', 
-                                'efficientnet_b5', 'convnext_tiny', 'convnext_small', 'convnext_base'],
+                        choices=['resnet18','resnet50', 'resnet101', 'resnet22_nyu', 'efficientnet_b0', 'efficientnet_b3', 
+                                'efficientnet_b5', 'convnext_tiny', 'convnext_small', 'convnext_base','view_resnetv3'],
                         help='骨幹網路選擇')
     parser.add_argument('--pretrained', action='store_true', default=True,
                         help='是否使用預訓練權重')
     parser.add_argument('--num_classes', type=int, default=6,
                         help='分類類別數量')
-    parser.add_argument('--architecture', type=str, choices=['baseline','ipsi','bi','cross_view'], default='cross_view', help='模型架構')
+    parser.add_argument('--architecture', type=str, choices=['baseline',"side_invariant",'ipsi','bi','cross_view'], default='cross_view', help='模型架構')
+    parser.add_argument('--concate_method', type=str, choices=['concat','concat_linear','concat_mlp','2fc'], default='concat', help='多視角特徵融合方式')
+    parser.add_argument('--decision_rule', type=str, choices=['max','avg','rule'], default='max', help='exam-level 決策規則')
 
     # 訓練
     parser.add_argument('--batch_size', type=int, default=8,
@@ -80,6 +81,9 @@ def parse_args():
                         help='是否在損失函數中使用類別權重')
     parser.add_argument('--use_weighted_sampler', action='store_true', default=False,
                         help='是否使用加權隨機採樣器')
+    # NYU 相關參數
+    parser.add_argument('--nyu_weights_path', type=str, default=None,
+                        help='NYU breast cancer classifier 預訓練權重路徑')
     # 其他參數
     parser.add_argument('--save_dir', type=str, default='experiments',
                         help='實驗根目錄')
@@ -125,10 +129,10 @@ def train_one_epoch(model, loader, criterion, optimizer, device, epoch, scaler, 
         
         with torch.amp.autocast('cuda', enabled=args.mixed_precision):
             # ⭐ 新：model 回傳 exam_probs, left_logits, right_logits
-            exam_probs, left_logits, right_logits = model(images)
+            exam_log_prob, L_prob, R_prob, L_logits, R_logits = model(images)
 
             # 1. exam-level loss
-            cls_loss = criterion(exam_probs, labels)
+            cls_loss = criterion(exam_log_prob, labels)
 
             loss = cls_loss 
             loss = loss / accumulation_steps
@@ -143,8 +147,8 @@ def train_one_epoch(model, loader, criterion, optimizer, device, epoch, scaler, 
         running_loss += loss.item() * accumulation_steps
         running_cls_loss += cls_loss.item()
 
-        # ⭐ 用 exam_probs 取預測
-        preds = torch.argmax(exam_probs, dim=1).cpu().numpy()
+        # ⭐ 用 exam_log_prob 取預測
+        preds = torch.argmax(exam_log_prob, dim=1).cpu().numpy()
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().numpy())
         
@@ -176,12 +180,12 @@ def validate(model, loader, criterion, device, args, phase="Valid"):
             labels = labels.to(device)
             
             with torch.amp.autocast('cuda', enabled=args.mixed_precision):
-                exam_probs, left_logits, right_logits = model(images)
-                loss = criterion(exam_probs, labels)
+                exam_log_prob, L_prob, R_prob, L_logits, R_logits = model(images)
+                loss = criterion(exam_log_prob, labels)
             
             running_loss += loss.item()
             
-            preds = torch.argmax(exam_probs, dim=1).cpu().numpy()
+            preds = torch.argmax(exam_log_prob, dim=1).cpu().numpy()
             all_preds.extend(preds)
             all_labels.extend(labels.cpu().numpy())
             
@@ -204,9 +208,9 @@ def test(model, loader, device, args, exp_dir):
             labels = labels.to(device)
             
             with torch.amp.autocast('cuda', enabled=args.mixed_precision):
-                exam_probs, left_logits, right_logits = model(images)
+                exam_log_prob, L_prob, R_prob, L_logits, R_logits = model(images)
             
-            preds = torch.argmax(exam_probs, dim=1).cpu().numpy()
+            preds = torch.argmax(exam_log_prob, dim=1).cpu().numpy()
             all_preds.extend(preds)
             all_labels.extend(labels.cpu().numpy())
 
@@ -314,8 +318,20 @@ def main():
         pretrained=args.pretrained, 
         num_classes=args.num_classes,
         architecture=args.architecture,
+        concate_method=args.concate_method,
+        decision_rule=args.decision_rule
     )
     model = model.to(device)
+    
+    # 載入 NYU 預訓練權重 (如果使用 resnet22_nyu)
+    if args.backbone == 'resnet22_nyu' and args.nyu_weights_path:
+        if os.path.exists(args.nyu_weights_path):
+            model.load_nyu_pretrained(args.nyu_weights_path)
+        else:
+            print(f"⚠️  NYU 權重檔案不存在: {args.nyu_weights_path}")
+            print("   將使用隨機初始化的權重")
+    elif args.backbone == 'resnet22_nyu':
+        print("⚠️  使用 resnet22_nyu 但未指定 --nyu_weights_path，將使用隨機初始化")
     
     # 載入 checkpoint (如果有)
     if args.checkpoint:
@@ -384,6 +400,8 @@ def main():
         history['val_loss'].append(val_loss)
         history['val_acc'].append(val_acc)
         history['val_f1'].append(val_f1)
+        history['train_f1'] = history.get('train_f1', [])  # 確保存在
+        history['train_f1'].append(train_acc)
         
         print(f"\nEpoch {epoch+1}/{args.num_epochs} Stats:")
         print(f"Train Loss: {train_loss:.4f} (Cls: {train_cls_loss:.4f} | Acc: {train_acc:.4f}")
