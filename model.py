@@ -41,6 +41,7 @@ class SiameseResNetRuleModel(nn.Module):
                 growth_factor=vr_growth_factor,
                 blocks_per_layer_list=vr_blocks_per_layer_list,
                 block_strides_list=vr_block_strides_list,
+                kaiming_init=True,
             )
             self.feature_dim = vr_num_filters * (vr_growth_factor ** 4)
 

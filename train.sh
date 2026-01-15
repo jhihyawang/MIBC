@@ -6,7 +6,7 @@
 
 # 請將以下路徑改為您電腦上的實際位置
 # 請將以下路徑改為您電腦上的實際位置
-DATA_ROOT="/home/stoneyew/Desktop/Mission-Impossible-BIRADS/processed_datasets"  # 圖片根目錄
+DATA_ROOT="/home/bsplab/Desktop/MIBC/clahe"  # 圖片根目錄
 CSV_DIR="csv/three_classes"       # CSV 檔案目錄
 
 # NYU ResNet22 預訓練權重路徑
@@ -15,7 +15,7 @@ NYU_WEIGHTS_PATH="resnet22_weight/ImageOnly__ModeImage_weights.p"
 TRAIN_CSV="${CSV_DIR}/train_labels.csv"
 VAL_CSV="${CSV_DIR}/val_labels.csv"
 TEST_CSV="${CSV_DIR}/test_labels.csv"
-SAVE_DIR="./1024*512__viewresv3_randominit"
+SAVE_DIR="./1024*512__viewresv3_kaiminginit"
 
 # ==========================================
 # 訓練超參數設定

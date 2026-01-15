@@ -213,7 +213,8 @@ class ViewResNetV3(nn.Module):
                 first_pool_stride=2,
                 first_pool_padding=0,
                 growth_factor=2, 
-                block_fn = None):
+                block_fn = None,
+                kaiming_init = True):  # 新增參數
         
         super(ViewResNetV3, self).__init__()
 
@@ -279,6 +280,31 @@ class ViewResNetV3(nn.Module):
             self.stages.append(stage)
             in_ch = out_ch
 
+        # Kaiming 初始化
+        if kaiming_init:
+            self._kaiming_init_weights()
+            print("✅ ViewResNetV3 Kaiming 初始化完成")
+
+    def _kaiming_init_weights(self):
+        """
+        對 ViewResNetV3 進行 Kaiming 初始化
+        
+        - Conv2d: Kaiming Normal (fan_out, relu)
+        - BatchNorm2d / GroupNorm: weight=1, bias=0
+        - 保留 contralateralNN 的特殊初始化
+        """
+        for name, m in self.named_modules():
+            # 跳過 contralateralNN 的特殊初始化層
+            if 'contra' in name and ('fc2' in name or 'gate' in name):
+                continue
+                
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
         
     @staticmethod
